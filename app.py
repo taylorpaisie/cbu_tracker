@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from dash import Dash, dcc, html, dash_table, Input, Output, State, callback_context
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 # ---- CONFIG ----
 # Column names used internally
@@ -31,11 +31,11 @@ COL_BILL_YTD = "Billable Hours (YTD)"
 def generate_fy_pay_periods(fy: int) -> pd.DataFrame:
     """
     Generate pay period data for a fiscal year.
-    FY runs from October 1 of the prior year to September 30.
+    FY runs from April 1 of the prior year to March 31.
     There are 26 pay periods per year (bi-weekly).
     """
-    # FY26 starts Oct 1, 2025 and ends Sep 30, 2026
-    fy_start = datetime(fy - 1, 10, 1)  # Oct 1 of prior calendar year
+    # FY26 starts Apr 1, 2025 and ends Mar 31, 2026
+    fy_start = datetime(fy - 1, 4, 1)  # Apr 1 of prior calendar year
     
     pay_periods = []
     current_start = fy_start
@@ -44,19 +44,8 @@ def generate_fy_pay_periods(fy: int) -> pd.DataFrame:
         pp_end = current_start + timedelta(days=13)  # 14-day pay period
         
         # Standard working hours per pay period (80 hours = 2 weeks x 40 hours)
-        working_hours = 80.0
-        
-        # Adjust for federal holidays (approximate)
-        # PP1 (early Oct) - Columbus Day
-        # PP5-6 (Nov) - Veterans Day, Thanksgiving
-        # PP7-8 (Dec) - Christmas
-        # PP9 (Jan) - New Year, MLK Day
-        # PP12 (Feb) - Presidents Day
-        # PP17 (May) - Memorial Day
-        # PP19 (Jul) - Independence Day
-        # PP21 (Sep) - Labor Day
-        holiday_pps = {1: 72, 5: 72, 6: 64, 7: 72, 8: 72, 9: 64, 12: 72, 17: 72, 19: 72, 21: 72}
-        working_hours = holiday_pps.get(pp, 80.0)
+        holidays_in_pp = count_federal_holidays(current_start.date(), pp_end.date())
+        working_hours = max(0.0, 80.0 - (holidays_in_pp * 8.0))
         
         pay_periods.append({
             COL_PP: pp,
@@ -69,6 +58,51 @@ def generate_fy_pay_periods(fy: int) -> pd.DataFrame:
         current_start = pp_end + timedelta(days=1)
     
     return pd.DataFrame(pay_periods)
+
+
+def count_federal_holidays(start_date: date, end_date: date) -> int:
+    """Return the number of observed U.S. federal holidays in the date range (inclusive)."""
+    years = {start_date.year, end_date.year}
+    holiday_dates = set()
+    for year in years:
+        holiday_dates.update(get_us_federal_holidays(year))
+    return sum(1 for holiday in holiday_dates if start_date <= holiday <= end_date)
+
+
+def get_us_federal_holidays(year: int) -> set[date]:
+    """Observed U.S. federal holidays for a given calendar year."""
+    def nth_weekday_of_month(month: int, weekday: int, n: int) -> date:
+        first = date(year, month, 1)
+        offset = (weekday - first.weekday()) % 7
+        return first + timedelta(days=offset + (n - 1) * 7)
+
+    def last_weekday_of_month(month: int, weekday: int) -> date:
+        next_month = date(year, month, 28) + timedelta(days=4)
+        last_day = next_month.replace(day=1) - timedelta(days=1)
+        offset = (last_day.weekday() - weekday) % 7
+        return last_day - timedelta(days=offset)
+
+    def observed(dt: date) -> date:
+        if dt.weekday() == 5:
+            return dt - timedelta(days=1)
+        if dt.weekday() == 6:
+            return dt + timedelta(days=1)
+        return dt
+
+    holidays = {
+        observed(date(year, 1, 1)),   # New Year's Day
+        nth_weekday_of_month(1, 0, 3),  # MLK Day (3rd Monday of Jan)
+        nth_weekday_of_month(2, 0, 3),  # Presidents Day (3rd Monday of Feb)
+        last_weekday_of_month(5, 0),    # Memorial Day (last Monday of May)
+        observed(date(year, 6, 19)),  # Juneteenth
+        observed(date(year, 7, 4)),   # Independence Day
+        nth_weekday_of_month(9, 0, 1),  # Labor Day (1st Monday of Sep)
+        nth_weekday_of_month(10, 0, 2),  # Columbus/Indigenous Peoples Day
+        observed(date(year, 11, 11)),  # Veterans Day
+        nth_weekday_of_month(11, 3, 4),  # Thanksgiving (4th Thursday of Nov)
+        observed(date(year, 12, 25)),  # Christmas
+    }
+    return holidays
 
 
 def generate_sample_data() -> pd.DataFrame:
