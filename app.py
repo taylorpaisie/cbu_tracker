@@ -9,9 +9,11 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import numpy as np
 import pandas as pd
-from dash import Dash, dcc, html, dash_table, Input, Output
+from dash import Dash, dcc, html, dash_table, Input, Output, State, callback_context
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
@@ -179,8 +181,50 @@ app.layout = html.Div(
 
         html.Hr(style={"borderColor": "#00a0b2", "opacity": "0.3"}),
 
-        html.H3("Enter Your Billable Hours", style={"color": "a"}),
-        html.P("Edit the 'Billable Hours' column below to enter your hours for each pay period:", 
+        html.H3("Upload Billable Hours File", style={"color": "#00a0b2"}),
+        html.P("Upload an Excel (.xlsx) or CSV file with your billable hours. The file should have columns for 'PP#' (or 'Pay Period') and 'Billable Hours'.", 
+               style={"color": "#666", "fontSize": "14px"}),
+        dcc.Upload(
+            id="upload-data",
+            children=html.Div([
+                "Drag and Drop or ",
+                html.A("Select a File", style={"color": "#00a0b2", "fontWeight": "bold", "cursor": "pointer"})
+            ]),
+            style={
+                "width": "100%",
+                "height": "60px",
+                "lineHeight": "60px",
+                "borderWidth": "2px",
+                "borderStyle": "dashed",
+                "borderRadius": "10px",
+                "borderColor": "#00a0b2",
+                "textAlign": "center",
+                "marginBottom": "10px",
+                "backgroundColor": "#f9fffe",
+            },
+            multiple=False,
+        ),
+        html.Div(id="upload-status", style={"marginBottom": "15px", "color": "#666", "fontSize": "14px"}),
+        
+        html.Details([
+            html.Summary("Expected File Format", style={"cursor": "pointer", "color": "#00a0b2", "fontWeight": "bold"}),
+            html.Div([
+                html.P("Supported formats:", style={"marginTop": "10px", "fontWeight": "bold"}),
+                html.P("✅ Technomics CBU Tracker Excel files (auto-detected from 'CBU Tracker' sheet)"),
+                html.P("✅ Simple Excel/CSV files with the following columns:"),
+                html.Ul([
+                    html.Li("'PP#' or 'Pay Period' — pay period numbers (1-26)"),
+                    html.Li("'Billable Hours' — your billable hours for each period"),
+                    html.Li("'Working Hours' (optional) — available working hours"),
+                    html.Li("'Y' or 'FY' (optional) — fiscal year"),
+                ]),
+            ], style={"padding": "10px", "backgroundColor": "#f5f5f5", "borderRadius": "5px", "marginTop": "5px"}),
+        ], style={"marginBottom": "15px"}),
+
+        html.Hr(style={"borderColor": "#00a0b2", "opacity": "0.3"}),
+
+        html.H3("Enter Your Billable Hours", style={"color": "#00a0b2"}),
+        html.P("Edit the 'Billable Hours' column below, or upload a file above to auto-fill:", 
                style={"color": "#666", "fontSize": "14px"}),
         dash_table.DataTable(
             id="input_table",
@@ -252,13 +296,157 @@ def kpi_card(title: str, value: str, subtitle: str = "") -> html.Div:
     )
 
 
-# Callback to update input table when fiscal year changes
+def parse_uploaded_file(contents: str, filename: str) -> tuple[pd.DataFrame | None, str]:
+    """
+    Parse an uploaded Excel or CSV file and extract billable hours data.
+    Returns (dataframe, status_message).
+    """
+    if contents is None:
+        return None, ""
+    
+    try:
+        content_type, content_string = contents.split(',')
+        decoded = base64.b64decode(content_string)
+        
+        # Determine file type and read accordingly
+        if filename.endswith('.xlsx') or filename.endswith('.xls'):
+            # Try to read the 'CBU Tracker' sheet first (Technomics format)
+            try:
+                # Read without header to find the header row
+                df_raw = pd.read_excel(io.BytesIO(decoded), engine='openpyxl', 
+                                       sheet_name='CBU Tracker', header=None)
+                
+                # Find the header row by looking for 'PP#' in any cell
+                header_row = None
+                for idx, row in df_raw.iterrows():
+                    if 'PP#' in row.values:
+                        header_row = idx
+                        break
+                
+                if header_row is not None:
+                    # Re-read with the correct header
+                    df = pd.read_excel(io.BytesIO(decoded), engine='openpyxl',
+                                       sheet_name='CBU Tracker', header=header_row)
+                else:
+                    # Fallback to first sheet with default header
+                    df = pd.read_excel(io.BytesIO(decoded), engine='openpyxl')
+            except Exception:
+                # Sheet not found, try first sheet
+                df = pd.read_excel(io.BytesIO(decoded), engine='openpyxl')
+        elif filename.endswith('.csv'):
+            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
+        else:
+            return None, f"❌ Unsupported file type: {filename}. Please upload .xlsx, .xls, or .csv"
+        
+        # Normalize column names (strip whitespace, keep original case for matching)
+        df.columns = [str(c).strip() for c in df.columns]
+        
+        # Create lowercase mapping for flexible column detection
+        col_map = {str(c).lower(): c for c in df.columns}
+        
+        # Find pay period column
+        pp_col = None
+        for col_lower in ['pp#', 'pp', 'pay period', 'period', 'payperiod']:
+            if col_lower in col_map:
+                pp_col = col_map[col_lower]
+                break
+        
+        if pp_col is None:
+            return None, "❌ Could not find pay period column. Expected: 'PP#', 'PP', 'Pay Period', or 'Period'"
+        
+        # Find billable hours column
+        bill_col = None
+        for col_lower in ['billable hours', 'billable', 'hours', 'bill hours', 'billhours']:
+            if col_lower in col_map:
+                bill_col = col_map[col_lower]
+                break
+        
+        if bill_col is None:
+            return None, "❌ Could not find billable hours column. Expected: 'Billable Hours', 'Billable', or 'Hours'"
+        
+        # Extract relevant columns
+        result = pd.DataFrame({
+            'PP#': pd.to_numeric(df[pp_col], errors='coerce'),
+            'Billable Hours': pd.to_numeric(df[bill_col], errors='coerce').fillna(0)
+        })
+        
+        # Check for FY column (Y or FY or Fiscal Year)
+        fy_col = None
+        for col_lower in ['y', 'fy', 'fiscal year', 'fiscalyear', 'year']:
+            if col_lower in col_map:
+                fy_col = col_map[col_lower]
+                break
+        
+        if fy_col:
+            result['FY'] = pd.to_numeric(df[fy_col], errors='coerce')
+        
+        # Check for Working Hours column (to override defaults)
+        work_col = None
+        for col_lower in ['working hours', 'workinghours', 'work hours', 'available hours']:
+            if col_lower in col_map:
+                work_col = col_map[col_lower]
+                break
+        
+        if work_col:
+            result['Working Hours'] = pd.to_numeric(df[work_col], errors='coerce')
+        
+        # Remove rows with invalid PP# or rows that are notes/footers
+        result = result.dropna(subset=['PP#'])
+        result = result[result['PP#'].between(1, 26)]  # Valid pay periods only
+        result['PP#'] = result['PP#'].astype(int)
+        
+        if len(result) == 0:
+            return None, "❌ No valid data rows found in the file."
+        
+        return result, f"✅ Successfully loaded {len(result)} pay periods from '{filename}'"
+        
+    except Exception as e:
+        return None, f"❌ Error parsing file: {str(e)}"
+
+
+# Callback to handle file upload and update input table
 @app.callback(
     Output("input_table", "data"),
+    Output("upload-status", "children"),
     Input("fy", "value"),
+    Input("upload-data", "contents"),
+    State("upload-data", "filename"),
 )
-def update_input_table(fy: int):
-    return get_initial_billable_data(fy)
+def update_input_table(fy: int, contents: str, filename: str):
+    ctx = callback_context
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else None
+    
+    # Start with base data for the fiscal year
+    base_data = get_initial_billable_data(fy)
+    
+    if triggered_id == "upload-data" and contents is not None:
+        # Parse the uploaded file
+        uploaded_df, status_msg = parse_uploaded_file(contents, filename)
+        
+        if uploaded_df is not None:
+            # If file has FY column, filter to selected FY
+            if 'FY' in uploaded_df.columns:
+                uploaded_df = uploaded_df[uploaded_df['FY'] == fy]
+                if len(uploaded_df) == 0:
+                    return base_data, f"⚠️ File loaded but no data found for FY{fy}. Showing empty template."
+            
+            # Update base_data with uploaded billable hours (and working hours if available)
+            uploaded_hours = dict(zip(uploaded_df['PP#'], uploaded_df['Billable Hours']))
+            uploaded_work = dict(zip(uploaded_df['PP#'], uploaded_df['Working Hours'])) if 'Working Hours' in uploaded_df.columns else {}
+            
+            for row in base_data:
+                pp = row['PP#']
+                if pp in uploaded_hours:
+                    row['Billable Hours'] = float(uploaded_hours[pp])
+                if pp in uploaded_work and pd.notna(uploaded_work.get(pp)):
+                    row['Working Hours'] = float(uploaded_work[pp])
+            
+            return base_data, status_msg
+        else:
+            return base_data, status_msg
+    
+    # Fiscal year changed or initial load - return base data
+    return base_data, ""
 
 
 @app.callback(
@@ -279,10 +467,13 @@ def update(fy: int, goal: float, input_data: list):
     dff = df_all[df_all["FY"] == fy].copy()
     dff = dff.sort_values(COL_PP).reset_index(drop=True)
     
-    # Override billable hours with user-entered values
+    # Override billable hours and working hours with user-entered values
     if input_data:
         user_billable = {row["PP#"]: row.get("Billable Hours", 0) or 0 for row in input_data}
+        user_working = {row["PP#"]: row.get("Working Hours") for row in input_data}
         dff[COL_BILL] = dff[COL_PP].map(lambda pp: user_billable.get(int(pp), 0) if pd.notna(pp) else 0)
+        # Update working hours if provided
+        dff[COL_WORK] = dff[COL_PP].map(lambda pp: user_working.get(int(pp)) if pd.notna(pp) and user_working.get(int(pp)) else dff.loc[dff[COL_PP] == pp, COL_WORK].iloc[0] if len(dff.loc[dff[COL_PP] == pp]) > 0 else 80)
 
     # Compute CBU with no adjustment (user provides actual values now)
     calc = compute_cbu(dff, adj_billable_per_period=0)
