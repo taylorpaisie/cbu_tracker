@@ -2,7 +2,7 @@
 # Plotly Dash "CBU Tracker" app with What-If parameters
 #
 # Run:
-#   pip install dash pandas openpyxl plotly
+#   pip install dash pandas plotly
 #   python app.py
 #
 # Then open: http://127.0.0.1:8050
@@ -13,14 +13,12 @@ import numpy as np
 import pandas as pd
 from dash import Dash, dcc, html, dash_table, Input, Output
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
 # ---- CONFIG ----
-EXCEL_PATH = r"Technomics CBU Tracker FY26 (1).xlsx"
-SHEET_NAME = "CBU Tracker"  # change if needed
-
-# Excel columns we expect
+# Column names used internally
 COL_PP = "PP#"
-COL_FY = "Y"  # fiscal year column in your file
+COL_FY = "Y"  # fiscal year column
 COL_START = "Pay Period Start"
 COL_END = "Pay Period End"
 COL_WORK = "Working Hours"
@@ -28,75 +26,62 @@ COL_BILL = "Billable Hours"
 COL_BILL_YTD = "Billable Hours (YTD)"
 
 
-def load_and_clean_tracker(excel_path: str, sheet_name: str) -> pd.DataFrame:
+def generate_fy_pay_periods(fy: int) -> pd.DataFrame:
     """
-    Loads the Excel sheet and finds the header row that contains 'PP#'.
-    Then cleans types and returns a tidy dataframe.
+    Generate pay period data for a fiscal year.
+    FY runs from October 1 of the prior year to September 30.
+    There are 26 pay periods per year (bi-weekly).
     """
-    raw = pd.read_excel(excel_path, sheet_name=sheet_name, header=None, engine="openpyxl")
+    # FY26 starts Oct 1, 2025 and ends Sep 30, 2026
+    fy_start = datetime(fy - 1, 10, 1)  # Oct 1 of prior calendar year
+    
+    pay_periods = []
+    current_start = fy_start
+    
+    for pp in range(1, 27):  # 26 pay periods
+        pp_end = current_start + timedelta(days=13)  # 14-day pay period
+        
+        # Standard working hours per pay period (80 hours = 2 weeks x 40 hours)
+        working_hours = 80.0
+        
+        # Adjust for federal holidays (approximate)
+        # PP1 (early Oct) - Columbus Day
+        # PP5-6 (Nov) - Veterans Day, Thanksgiving
+        # PP7-8 (Dec) - Christmas
+        # PP9 (Jan) - New Year, MLK Day
+        # PP12 (Feb) - Presidents Day
+        # PP17 (May) - Memorial Day
+        # PP19 (Jul) - Independence Day
+        # PP21 (Sep) - Labor Day
+        holiday_pps = {1: 72, 5: 72, 6: 64, 7: 72, 8: 72, 9: 64, 12: 72, 17: 72, 19: 72, 21: 72}
+        working_hours = holiday_pps.get(pp, 80.0)
+        
+        pay_periods.append({
+            COL_PP: pp,
+            COL_START: current_start,
+            COL_END: pp_end,
+            COL_WORK: working_hours,
+            COL_BILL: 0.0,  # User will enter this
+        })
+        
+        current_start = pp_end + timedelta(days=1)
+    
+    return pd.DataFrame(pay_periods)
 
-    # Find the row index where any of the first few columns equals 'PP#' (header row)
-    header_row_idx = None
-    for i in range(min(len(raw), 50)):
-        for j in range(min(len(raw.columns), 10)):
-            v = raw.iloc[i, j]
-            if isinstance(v, str) and v.strip() == COL_PP:
-                header_row_idx = i
-                break
-        if header_row_idx is not None:
-            break
 
-    if header_row_idx is None:
-        raise ValueError(
-            "Couldn't find the header row (where a column is 'PP#'). "
-            "Open the sheet and confirm the column header text."
-        )
-
-    df = pd.read_excel(
-        excel_path,
-        sheet_name=sheet_name,
-        header=header_row_idx,
-        engine="openpyxl",
-    )
-
-    # Drop completely empty columns
-    df = df.dropna(axis=1, how="all")
-
-    # Normalize column names (strip weird spaces/newlines)
-    df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
-
-    # Keep rows that actually have a pay period number
-    df = df[df[COL_PP].notna()].copy()
-
-    # Types
-    df[COL_PP] = pd.to_numeric(df[COL_PP], errors="coerce").astype("Int64")
-    if COL_FY in df.columns:
-        df[COL_FY] = pd.to_numeric(df[COL_FY], errors="coerce").astype("Int64")
-
-    for c in (COL_WORK, COL_BILL, COL_BILL_YTD):
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-
-    for c in (COL_START, COL_END):
-        if c in df.columns:
-            df[c] = pd.to_datetime(df[c], errors="coerce")
-
-    # Sort properly
-    sort_cols = [COL_FY, COL_PP] if COL_FY in df.columns else [COL_PP]
-    df = df.sort_values(sort_cols).reset_index(drop=True)
-
-    # If we only have YTD billable hours, derive per-period billable hours
-    if COL_BILL not in df.columns and COL_BILL_YTD in df.columns:
-        df[COL_BILL] = df[COL_BILL_YTD].diff().fillna(df[COL_BILL_YTD])
-        # Handle negative values (new fiscal year reset)
-        df.loc[df[COL_BILL] < 0, COL_BILL] = df.loc[df[COL_BILL] < 0, COL_BILL_YTD]
-
-    # Some safety
-    missing = [c for c in [COL_PP, COL_WORK, COL_BILL] if c not in df.columns]
-    if missing:
-        raise ValueError(f"Missing expected column(s): {missing}. Found: {list(df.columns)}")
-
-    return df
+def generate_sample_data() -> pd.DataFrame:
+    """
+    Generate sample pay period data for multiple fiscal years.
+    """
+    fiscal_years = [2025, 2026]  # FY25 and FY26
+    all_data = []
+    
+    for fy in fiscal_years:
+        fy_data = generate_fy_pay_periods(fy)
+        fy_data["FY"] = fy
+        all_data.append(fy_data)
+    
+    return pd.concat(all_data, ignore_index=True)
 
 
 def compute_cbu(df_fy: pd.DataFrame, adj_billable_per_period: float) -> pd.DataFrame:
@@ -127,13 +112,8 @@ def compute_cbu(df_fy: pd.DataFrame, adj_billable_per_period: float) -> pd.DataF
     return out
 
 
-# ---- Load data once at startup ----
-df_all = load_and_clean_tracker(EXCEL_PATH, SHEET_NAME)
-
-# Compute Fiscal Year as the ending year (Apr 2025 -> Mar 2026 = FY26)
-# FY is based on the end date: if month >= 4, FY = year + 1; else FY = year
-end_dt = df_all[COL_END].fillna(df_all[COL_START])
-df_all["FY"] = end_dt.dt.year.where(end_dt.dt.month < 4, end_dt.dt.year + 1).astype("Int64")
+# ---- Generate data at startup (no Excel file needed) ----
+df_all = generate_sample_data()
 
 fy_values = sorted([int(x) for x in df_all["FY"].dropna().unique().tolist()])
 
