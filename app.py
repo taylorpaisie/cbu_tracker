@@ -177,137 +177,168 @@ def get_initial_billable_data(fy: int) -> list:
     ]
 
 app.layout = html.Div(
-    style={"fontFamily": "Arial, sans-serif", "maxWidth": "1200px", "margin": "20px auto", "padding": "0 20px"},
+    className="app-shell",
     children=[
-        html.H2("CBU Tracker Dashboard", style={"color": "#00a0b2"}),
         html.Div(
-            style={"display": "flex", "gap": "18px", "flexWrap": "wrap", "alignItems": "flex-end"},
+            className="hero",
             children=[
                 html.Div(
-                    style={"minWidth": "220px"},
                     children=[
-                        html.Label("Fiscal Year", style={"color": "#00a0b2", "fontWeight": "bold"}),
-                        dcc.Dropdown(
-                            id="fy",
-                            options=[{"label": f"FY{y}", "value": y} for y in fy_values],
-                            value=fy_values[-1] if fy_values else None,
-                            clearable=False,
+                        html.P("CBU Tracker", className="hero-eyebrow"),
+                        html.H2("Dashboard Overview", className="hero-title"),
+                        html.P(
+                            "Track billable hours, monitor progress, and forecast fiscal-year performance.",
+                            className="hero-subtitle",
+                        ),
+                    ]
+                ),
+                html.Div(
+                    className="controls-card",
+                    children=[
+                        html.Div(
+                            className="control-field",
+                            children=[
+                                html.Label("Fiscal Year", className="control-label"),
+                                dcc.Dropdown(
+                                    id="fy",
+                                    options=[{"label": f"FY{y}", "value": y} for y in fy_values],
+                                    value=fy_values[-1] if fy_values else None,
+                                    clearable=False,
+                                    className="control-dropdown",
+                                ),
+                            ],
+                        ),
+                        html.Div(
+                            className="control-field control-field-wide",
+                            children=[
+                                html.Label("CBU Goal (EOY Target: 90.8%)", className="control-label"),
+                                dcc.Slider(
+                                    id="goal",
+                                    min=0.50,
+                                    max=1.00,
+                                    step=0.001,
+                                    value=0.908,
+                                    marks={0.50: "50%", 0.70: "70%", 0.908: "90.8%", 1.00: "100%"},
+                                    tooltip={"placement": "bottom", "always_visible": False},
+                                ),
+                            ],
                         ),
                     ],
                 ),
+            ],
+        ),
+        html.Div(
+            className="section-card",
+            children=[
                 html.Div(
-                    style={"minWidth": "320px", "flex": "1"},
+                    className="section-header",
                     children=[
-                        html.Label("CBU Goal (EOY Target: 90.8%)", style={"color": "#00a0b2", "fontWeight": "bold"}),
-                        dcc.Slider(
-                            id="goal",
-                            min=0.50,
-                            max=1.00,
-                            step=0.001,
-                            value=0.908,
-                            marks={0.50: "50%", 0.70: "70%", 0.908: "90.8%", 1.00: "100%"},
-                            tooltip={"placement": "bottom", "always_visible": False},
+                        html.H3("Upload Billable Hours File"),
+                        html.P(
+                            "Upload an Excel (.xlsx) or CSV file with your billable hours. The file should have columns for "
+                            "'PP#' (or 'Pay Period') and 'Billable Hours'.",
                         ),
+                    ],
+                ),
+                dcc.Upload(
+                    id="upload-data",
+                    children=html.Div(
+                        [
+                            "Drag and Drop or ",
+                            html.A("Select a File"),
+                        ]
+                    ),
+                    className="upload-dropzone",
+                    multiple=False,
+                ),
+                html.Div(id="upload-status", className="upload-status"),
+                html.Details(
+                    [
+                        html.Summary("Expected File Format"),
+                        html.Div(
+                            [
+                                html.P("Supported formats:"),
+                                html.P("✅ Technomics CBU Tracker Excel files (auto-detected from 'CBU Tracker' sheet)"),
+                                html.P("✅ Simple Excel/CSV files with the following columns:"),
+                                html.Ul(
+                                    [
+                                        html.Li("'PP#' or 'Pay Period' — pay period numbers (1-26)"),
+                                        html.Li("'Billable Hours' — your billable hours for each period"),
+                                        html.Li("'Working Hours' (optional) — available working hours"),
+                                        html.Li("'Y' or 'FY' (optional) — fiscal year"),
+                                    ]
+                                ),
+                            ],
+                            className="details-content",
+                        ),
+                    ],
+                    className="details-box",
+                ),
+            ],
+        ),
+        html.Div(
+            className="section-card",
+            children=[
+                html.Div(
+                    className="section-header",
+                    children=[
+                        html.H3("Enter Your Billable Hours"),
+                        html.P("Edit the 'Billable Hours' column below, or upload a file above to auto-fill:"),
+                    ],
+                ),
+                dash_table.DataTable(
+                    id="input_table",
+                    columns=[
+                        {"name": "PP#", "id": "PP#", "editable": False},
+                        {"name": "Pay Period Start", "id": "Pay Period Start", "editable": False},
+                        {"name": "Pay Period End", "id": "Pay Period End", "editable": False},
+                        {"name": "Working Hours", "id": "Working Hours", "editable": False},
+                        {"name": "Billable Hours", "id": "Billable Hours", "editable": True, "type": "numeric"},
+                    ],
+                    data=get_initial_billable_data(fy_values[-1]) if fy_values else [],
+                    editable=True,
+                    row_deletable=False,
+                    style_table={"overflowX": "auto", "maxHeight": "400px", "overflowY": "auto"},
+                    style_cell={"padding": "8px", "fontSize": "13px", "textAlign": "center"},
+                    style_header={"fontWeight": "bold", "backgroundColor": "#1f3b73", "color": "white"},
+                    style_data_conditional=[
+                        {
+                            "if": {"column_id": "Billable Hours"},
+                            "backgroundColor": "#eef3ff",
+                            "fontWeight": "bold",
+                        }
                     ],
                 ),
             ],
         ),
-
-        html.Hr(style={"borderColor": "#00a0b2", "opacity": "0.3"}),
-
-        html.H3("Upload Billable Hours File", style={"color": "#00a0b2"}),
-        html.P("Upload an Excel (.xlsx) or CSV file with your billable hours. The file should have columns for 'PP#' (or 'Pay Period') and 'Billable Hours'.", 
-               style={"color": "#666", "fontSize": "14px"}),
-        dcc.Upload(
-            id="upload-data",
-            children=html.Div([
-                "Drag and Drop or ",
-                html.A("Select a File", style={"color": "#00a0b2", "fontWeight": "bold", "cursor": "pointer"})
-            ]),
-            style={
-                "width": "100%",
-                "height": "60px",
-                "lineHeight": "60px",
-                "borderWidth": "2px",
-                "borderStyle": "dashed",
-                "borderRadius": "10px",
-                "borderColor": "#00a0b2",
-                "textAlign": "center",
-                "marginBottom": "10px",
-                "backgroundColor": "#f9fffe",
-            },
-            multiple=False,
-        ),
-        html.Div(id="upload-status", style={"marginBottom": "15px", "color": "#666", "fontSize": "14px"}),
-        
-        html.Details([
-            html.Summary("Expected File Format", style={"cursor": "pointer", "color": "#00a0b2", "fontWeight": "bold"}),
-            html.Div([
-                html.P("Supported formats:", style={"marginTop": "10px", "fontWeight": "bold"}),
-                html.P("✅ Technomics CBU Tracker Excel files (auto-detected from 'CBU Tracker' sheet)"),
-                html.P("✅ Simple Excel/CSV files with the following columns:"),
-                html.Ul([
-                    html.Li("'PP#' or 'Pay Period' — pay period numbers (1-26)"),
-                    html.Li("'Billable Hours' — your billable hours for each period"),
-                    html.Li("'Working Hours' (optional) — available working hours"),
-                    html.Li("'Y' or 'FY' (optional) — fiscal year"),
-                ]),
-            ], style={"padding": "10px", "backgroundColor": "#f5f5f5", "borderRadius": "5px", "marginTop": "5px"}),
-        ], style={"marginBottom": "15px"}),
-
-        html.Hr(style={"borderColor": "#00a0b2", "opacity": "0.3"}),
-
-        html.H3("Enter Your Billable Hours", style={"color": "#00a0b2"}),
-        html.P("Edit the 'Billable Hours' column below, or upload a file above to auto-fill:", 
-               style={"color": "#666", "fontSize": "14px"}),
-        dash_table.DataTable(
-            id="input_table",
-            columns=[
-                {"name": "PP#", "id": "PP#", "editable": False},
-                {"name": "Pay Period Start", "id": "Pay Period Start", "editable": False},
-                {"name": "Pay Period End", "id": "Pay Period End", "editable": False},
-                {"name": "Working Hours", "id": "Working Hours", "editable": False},
-                {"name": "Billable Hours", "id": "Billable Hours", "editable": True, "type": "numeric"},
-            ],
-            data=get_initial_billable_data(fy_values[-1]) if fy_values else [],
-            editable=True,
-            row_deletable=False,
-            style_table={"overflowX": "auto", "maxHeight": "400px", "overflowY": "auto"},
-            style_cell={"padding": "8px", "fontSize": "13px", "textAlign": "center"},
-            style_header={"fontWeight": "bold", "backgroundColor": "#00a0b2", "color": "white"},
-            style_data_conditional=[
-                {
-                    "if": {"column_id": "Billable Hours"},
-                    "backgroundColor": "#fffde7",
-                    "fontWeight": "bold",
-                }
-            ],
-        ),
-
-        html.Hr(style={"borderColor": "#00a0b2", "opacity": "0.3"}),
-
         html.Div(
-            style={"display": "flex", "gap": "18px", "flexWrap": "wrap"},
+            className="kpi-grid",
             children=[
-                html.Div(id="kpi_cbu_ytd", style={"flex": "1", "minWidth": "240px"}),
-                html.Div(id="kpi_cbu_period", style={"flex": "1", "minWidth": "240px"}),
-                html.Div(id="kpi_bill_ytd", style={"flex": "1", "minWidth": "240px"}),
-                html.Div(id="kpi_work_ytd", style={"flex": "1", "minWidth": "240px"}),
+                html.Div(id="kpi_cbu_ytd"),
+                html.Div(id="kpi_cbu_period"),
+                html.Div(id="kpi_bill_ytd"),
+                html.Div(id="kpi_work_ytd"),
             ],
         ),
-
-        html.Hr(style={"borderColor": "#00a0b2", "opacity": "0.3"}),
-
-        dcc.Graph(id="cbu_line"),
-        dcc.Graph(id="hours_bar"),
-
-        html.H3("Pay Period Detail", style={"color": "#00a0b2"}),
-        dash_table.DataTable(
-            id="detail_table",
-            page_size=20,
-            style_table={"overflowX": "auto"},
-            style_cell={"padding": "6px", "fontSize": "13px"},
-            style_header={"fontWeight": "bold", "backgroundColor": "#00a0b2", "color": "white"},
+        html.Div(
+            className="section-card",
+            children=[
+                dcc.Graph(id="cbu_line"),
+                dcc.Graph(id="hours_bar"),
+            ],
+        ),
+        html.Div(
+            className="section-card",
+            children=[
+                html.Div(className="section-header", children=[html.H3("Pay Period Detail")]),
+                dash_table.DataTable(
+                    id="detail_table",
+                    page_size=20,
+                    style_table={"overflowX": "auto"},
+                    style_cell={"padding": "6px", "fontSize": "13px"},
+                    style_header={"fontWeight": "bold", "backgroundColor": "#1f3b73", "color": "white"},
+                ),
+            ],
         ),
     ],
 )
@@ -315,17 +346,11 @@ app.layout = html.Div(
 
 def kpi_card(title: str, value: str, subtitle: str = "") -> html.Div:
     return html.Div(
-        style={
-            "border": "2px solid #00a0b2",
-            "borderRadius": "10px",
-            "padding": "12px 14px",
-            "boxShadow": "0 2px 4px rgba(0,160,178,0.15)",
-            "background": "white",
-        },
+        className="kpi-card",
         children=[
-            html.Div(title, style={"fontSize": "13px", "color": "#00a0b2", "fontWeight": "bold"}),
-            html.Div(value, style={"fontSize": "30px", "fontWeight": "bold", "marginTop": "6px", "color": "#333"}),
-            html.Div(subtitle, style={"fontSize": "12px", "color": "#777", "marginTop": "4px"}),
+            html.Div(title, className="kpi-title"),
+            html.Div(value, className="kpi-value"),
+            html.Div(subtitle, className="kpi-subtitle"),
         ],
     )
 
