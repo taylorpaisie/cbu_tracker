@@ -50,10 +50,9 @@ def generate_fy_pay_periods(fy: int) -> pd.DataFrame:
         else:
             pp_end = min(current_start + timedelta(days=13), fy_end)  # 14-day pay period (cap at FY end)
         
-        # Working hours based on business days within the pay period minus observed holidays.
-        holidays_in_pp = count_federal_holidays(current_start.date(), pp_end.date())
+        # Working hours based on Excel NETWORKDAYS formula (weekdays only, no holidays passed).
         business_days = len(pd.bdate_range(current_start, pp_end))
-        working_hours = max(0.0, (business_days - holidays_in_pp) * 8.0)
+        working_hours = max(0.0, business_days * 8.0)
         
         pay_periods.append({
             COL_PP: pp,
