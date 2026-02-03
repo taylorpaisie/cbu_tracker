@@ -121,6 +121,9 @@ fy_values = sorted([int(x) for x in df_all["FY"].dropna().unique().tolist()])
 app = Dash(__name__)
 app.title = "CBU Tracker"
 
+# Expose the Flask server for gunicorn
+server = app.server
+
 # Prepare initial billable hours data for editing
 def get_initial_billable_data(fy: int) -> list:
     """Get pay periods for a fiscal year with editable billable hours."""
