@@ -36,16 +36,24 @@ def generate_fy_pay_periods(fy: int) -> pd.DataFrame:
     """
     # FY26 starts Apr 1, 2025 and ends Mar 31, 2026
     fy_start = datetime(fy - 1, 4, 1)  # Apr 1 of prior calendar year
+    fy_end = datetime(fy, 3, 31)
     
     pay_periods = []
     current_start = fy_start
     
     for pp in range(1, 27):  # 26 pay periods
-        pp_end = current_start + timedelta(days=13)  # 14-day pay period
+        if current_start > fy_end:
+            break
+
+        if pp == 26:
+            pp_end = fy_end
+        else:
+            pp_end = min(current_start + timedelta(days=13), fy_end)  # 14-day pay period (cap at FY end)
         
-        # Standard working hours per pay period (80 hours = 2 weeks x 40 hours)
+        # Working hours based on business days within the pay period minus observed holidays.
         holidays_in_pp = count_federal_holidays(current_start.date(), pp_end.date())
-        working_hours = max(0.0, 80.0 - (holidays_in_pp * 8.0))
+        business_days = len(pd.bdate_range(current_start, pp_end))
+        working_hours = max(0.0, (business_days - holidays_in_pp) * 8.0)
         
         pay_periods.append({
             COL_PP: pp,
