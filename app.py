@@ -162,8 +162,11 @@ def get_initial_billable_data(fy: int) -> list[dict]:
 
 
 app.layout = html.Div(
+    id="app-container",
+    className="theme-light",
     style={"fontFamily": "Arial, sans-serif", "maxWidth": "1200px", "margin": "20px auto", "padding": "0 20px"},
     children=[
+        dcc.Store(id="theme-store", storage_type="local", data="light"),
         html.H2("CBU Tracker Dashboard", style={"color": "#00a0b2"}),
         html.Div(
             style={"display": "flex", "gap": "18px", "flexWrap": "wrap", "alignItems": "flex-end"},
@@ -192,6 +195,23 @@ app.layout = html.Div(
                             value=0.908,
                             marks={0.50: "50%", 0.70: "70%", 0.908: "90.8%", 1.00: "100%"},
                             tooltip={"placement": "bottom", "always_visible": False},
+                        ),
+                    ],
+                ),
+                html.Div(
+                    style={"minWidth": "220px"},
+                    children=[
+                        html.Label("Theme", style={"color": "#00a0b2", "fontWeight": "bold"}),
+                        dcc.RadioItems(
+                            id="theme-toggle",
+                            options=[
+                                {"label": "Light", "value": "light"},
+                                {"label": "Dark", "value": "dark"},
+                            ],
+                            value="light",
+                            inline=True,
+                            className="theme-toggle",
+                            inputStyle={"marginRight": "6px", "marginLeft": "12px"},
                         ),
                     ],
                 ),
@@ -298,19 +318,32 @@ app.layout = html.Div(
 
 def kpi_card(title: str, value: str, subtitle: str = "") -> html.Div:
     return html.Div(
+        className="kpi-card",
         style={
-            "border": "2px solid #00a0b2",
+            "border": "2px solid var(--accent)",
             "borderRadius": "10px",
             "padding": "12px 14px",
-            "boxShadow": "0 2px 4px rgba(0,160,178,0.15)",
-            "background": "white",
+            "boxShadow": "0 2px 4px var(--shadow)",
+            "background": "var(--card-bg)",
         },
         children=[
-            html.Div(title, style={"fontSize": "13px", "color": "#00a0b2", "fontWeight": "bold"}),
-            html.Div(value, style={"fontSize": "30px", "fontWeight": "bold", "marginTop": "6px", "color": "#333"}),
-            html.Div(subtitle, style={"fontSize": "12px", "color": "#777", "marginTop": "4px"}),
+            html.Div(title, style={"fontSize": "13px", "color": "var(--accent)", "fontWeight": "bold"}),
+            html.Div(value, style={"fontSize": "30px", "fontWeight": "bold", "marginTop": "6px", "color": "var(--text-main)"}),
+            html.Div(subtitle, style={"fontSize": "12px", "color": "var(--text-muted)", "marginTop": "4px"}),
         ],
     )
+
+
+@app.callback(
+    Output("theme-store", "data"),
+    Output("theme-toggle", "value"),
+    Output("app-container", "className"),
+    Input("theme-toggle", "value"),
+    State("theme-store", "data"),
+)
+def sync_theme(theme_value: str, stored_theme: str):
+    selected = theme_value or stored_theme or "light"
+    return selected, selected, f"theme-{selected}"
 
 
 def parse_uploaded_file(contents: str, filename: str) -> tuple[pd.DataFrame | None, str]:
@@ -467,8 +500,9 @@ def update_input_table(fy: int, contents: str, filename: str):
     Input("fy", "value"),
     Input("goal", "value"),
     Input("input_table", "data"),
+    Input("theme-store", "data"),
 )
-def update(fy: int, goal: float, input_data: list):
+def update(fy: int, goal: float, input_data: list, theme: str):
     dff = df_all[df_all[COL_FY] == fy].copy().sort_values(COL_PP).reset_index(drop=True)
 
     # Override billable hours / working hours with user-entered values
@@ -514,12 +548,16 @@ def update(fy: int, goal: float, input_data: list):
     fig_line.add_trace(go.Scatter(x=calc[COL_PP].astype(int), y=calc["CBU (Period)"], mode="lines+markers", name="CBU (Period)"))
     fig_line.add_trace(go.Scatter(x=calc[COL_PP].astype(int), y=calc["CBU (YTD)"], mode="lines+markers", name="CBU (YTD)"))
     fig_line.add_trace(go.Scatter(x=calc[COL_PP].astype(int), y=[goal] * len(calc), mode="lines", name="Goal", line={"dash": "dash"}))
+    is_dark = theme == "dark"
     fig_line.update_layout(
         title=f"FY{fy} — CBU (Period) and CBU (YTD)",
         xaxis_title="Pay Period (PP#)",
         yaxis_title="CBU",
         hovermode="x unified",
         margin=dict(l=40, r=20, t=60, b=40),
+        template="plotly_dark" if is_dark else "plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
     )
 
     # Bar chart
@@ -532,6 +570,9 @@ def update(fy: int, goal: float, input_data: list):
         xaxis_title="Pay Period (PP#)",
         yaxis_title="Hours",
         margin=dict(l=40, r=20, t=60, b=40),
+        template="plotly_dark" if is_dark else "plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
     )
 
     # Detail table

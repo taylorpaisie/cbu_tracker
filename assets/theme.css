@@ -11,6 +11,60 @@ body {
   color: #1f2937;
 }
 
+#app-container {
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+#app-container.theme-light {
+  --bg-main: #f8fafc;
+  --card-bg: #ffffff;
+  --text-main: #1f2937;
+  --text-muted: #64748b;
+  --accent: #00a0b2;
+  --border: #cbd5e1;
+  --shadow: rgba(0, 160, 178, 0.15);
+}
+
+#app-container.theme-dark {
+  --bg-main: #0f172a;
+  --card-bg: #1e293b;
+  --text-main: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent: #38bdf8;
+  --border: #334155;
+  --shadow: rgba(15, 23, 42, 0.6);
+}
+
+#app-container {
+  background: var(--bg-main);
+  color: var(--text-main);
+}
+
+#app-container .theme-toggle {
+  color: var(--text-main);
+}
+
+#app-container .dash-table-container .dash-spreadsheet-container,
+#app-container .dash-table-container .dash-spreadsheet-inner {
+  border-color: var(--border) !important;
+}
+
+#app-container.theme-dark .dash-table-container .dash-header {
+  background-color: #0f766e !important;
+  color: #f8fafc !important;
+}
+
+#app-container.theme-dark .dash-table-container .dash-cell {
+  background-color: #1e293b !important;
+  color: #e2e8f0 !important;
+  border-color: #334155 !important;
+}
+
+#app-container.theme-dark .dash-table-container .dash-cell.focused {
+  background-color: #334155 !important;
+}
+
 .app-shell {
   max-width: 1200px;
   margin: 0 auto;
