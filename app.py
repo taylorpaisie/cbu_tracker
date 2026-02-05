@@ -554,4 +554,10 @@ def update(fy: int, goal: float, input_data: list):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    import os
+
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8050"))
+    debug = os.getenv("DASH_DEBUG", "false").lower() == "true"
+
+    app.run(host=host, port=port, debug=debug)
