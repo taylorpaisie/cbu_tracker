@@ -167,6 +167,7 @@ app.layout = html.Div(
     style={"fontFamily": "Arial, sans-serif", "maxWidth": "1200px", "margin": "20px auto", "padding": "0 20px"},
     children=[
         dcc.Store(id="theme-store", storage_type="local", data="light"),
+        dcc.Store(id="hours-store", storage_type="local", data={}),
         html.H2("CBU Tracker Dashboard", style={"color": "#00a0b2"}),
         html.Div(
             style={"display": "flex", "gap": "18px", "flexWrap": "wrap", "alignItems": "flex-end"},
@@ -452,12 +453,14 @@ def parse_uploaded_file(contents: str, filename: str) -> tuple[pd.DataFrame | No
     Input("fy", "value"),
     Input("upload-data", "contents"),
     State("upload-data", "filename"),
+    State("hours-store", "data"),
 )
-def update_input_table(fy: int, contents: str, filename: str):
+def update_input_table(fy: int, contents: str, filename: str, stored_hours: dict | None):
     ctx = callback_context
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else None
 
     base_data = get_initial_billable_data(fy)
+    saved_data = (stored_hours or {}).get(str(fy)) if isinstance(stored_hours, dict) else None
 
     if triggered_id == "upload-data" and contents is not None:
         uploaded_df, status_msg = parse_uploaded_file(contents, filename)
@@ -485,7 +488,26 @@ def update_input_table(fy: int, contents: str, filename: str):
 
         return base_data, status_msg
 
+    if saved_data and isinstance(saved_data, list):
+        return saved_data, ""
+
     return base_data, ""
+
+
+@app.callback(
+    Output("hours-store", "data"),
+    Input("input_table", "data"),
+    State("fy", "value"),
+    State("hours-store", "data"),
+    prevent_initial_call=True,
+)
+def persist_hours(input_data: list[dict], fy: int, stored_hours: dict | None):
+    if fy is None:
+        return stored_hours or {}
+
+    next_store = dict(stored_hours or {})
+    next_store[str(fy)] = input_data or []
+    return next_store
 
 
 @app.callback(
