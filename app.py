@@ -108,6 +108,22 @@ def generate_sample_data() -> pd.DataFrame:
     return pd.concat(all_data, ignore_index=True)
 
 
+def apply_employment_start_adjustment(df: pd.DataFrame, employment_start: str | None) -> pd.DataFrame:
+    """Zero out hours for pay periods that ended before the employment start date."""
+    if not employment_start:
+        return df
+
+    adjusted = df.copy()
+    start_ts = pd.to_datetime(employment_start, errors="coerce")
+    if pd.isna(start_ts):
+        return adjusted
+
+    before_start_mask = pd.to_datetime(adjusted[COL_END]) < start_ts
+    adjusted.loc[before_start_mask, COL_WORK] = 0.0
+    adjusted.loc[before_start_mask, COL_BILL] = 0.0
+    return adjusted
+
+
 def compute_cbu(df_fy: pd.DataFrame) -> pd.DataFrame:
     """Compute period and YTD CBU using Billable Hours / Working Hours."""
     out = df_fy.copy()
@@ -181,6 +197,19 @@ app.layout = html.Div(
                             options=[{"label": f"FY{y}", "value": y} for y in fy_values],
                             value=fy_values[-1] if fy_values else None,
                             clearable=False,
+                        ),
+                    ],
+                ),
+                html.Div(
+                    style={"minWidth": "230px"},
+                    children=[
+                        html.Label("Employment Start Date", style={"color": "#00a0b2", "fontWeight": "bold"}),
+                        dcc.DatePickerSingle(
+                            id="employment-start-date",
+                            display_format="YYYY-MM-DD",
+                            date=None,
+                            placeholder="Optional",
+                            clearable=True,
                         ),
                     ],
                 ),
@@ -451,11 +480,12 @@ def parse_uploaded_file(contents: str, filename: str) -> tuple[pd.DataFrame | No
     Output("input_table", "data"),
     Output("upload-status", "children"),
     Input("fy", "value"),
+    Input("employment-start-date", "date"),
     Input("upload-data", "contents"),
     State("upload-data", "filename"),
     State("hours-store", "data"),
 )
-def update_input_table(fy: int, contents: str, filename: str, stored_hours: dict | None):
+def update_input_table(fy: int, employment_start: str | None, contents: str, filename: str, stored_hours: dict | None):
     ctx = callback_context
     triggered_id = ctx.triggered[0]["prop_id"].split(".")[0] if ctx.triggered else None
 
@@ -470,7 +500,8 @@ def update_input_table(fy: int, contents: str, filename: str, stored_hours: dict
             if "FY" in uploaded_df.columns and uploaded_df["FY"].notna().any():
                 uploaded_df = uploaded_df[uploaded_df["FY"] == fy]
                 if len(uploaded_df) == 0:
-                    return base_data, f"⚠️ File loaded but no data found for FY{fy}. Showing template."
+                    adjusted = apply_employment_start_adjustment(pd.DataFrame(base_data), employment_start)
+                    return adjusted.to_dict("records"), f"⚠️ File loaded but no data found for FY{fy}. Showing template."
 
             uploaded_hours = dict(zip(uploaded_df["PP#"], uploaded_df["Billable Hours"]))
             uploaded_work = (
@@ -484,14 +515,18 @@ def update_input_table(fy: int, contents: str, filename: str, stored_hours: dict
                 if pp in uploaded_work and pd.notna(uploaded_work.get(pp)):
                     row["Working Hours"] = float(uploaded_work[pp])
 
-            return base_data, status_msg
+            adjusted = apply_employment_start_adjustment(pd.DataFrame(base_data), employment_start)
+            return adjusted.to_dict("records"), status_msg
 
-        return base_data, status_msg
+        adjusted = apply_employment_start_adjustment(pd.DataFrame(base_data), employment_start)
+        return adjusted.to_dict("records"), status_msg
 
     if saved_data and isinstance(saved_data, list):
-        return saved_data, ""
+        adjusted_saved = apply_employment_start_adjustment(pd.DataFrame(saved_data), employment_start)
+        return adjusted_saved.to_dict("records"), ""
 
-    return base_data, ""
+    adjusted_base = apply_employment_start_adjustment(pd.DataFrame(base_data), employment_start)
+    return adjusted_base.to_dict("records"), ""
 
 
 @app.callback(
@@ -522,9 +557,10 @@ def persist_hours(input_data: list[dict], fy: int, stored_hours: dict | None):
     Input("fy", "value"),
     Input("goal", "value"),
     Input("input_table", "data"),
+    Input("employment-start-date", "date"),
     Input("theme-store", "data"),
 )
-def update(fy: int, goal: float, input_data: list, theme: str):
+def update(fy: int, goal: float, input_data: list, employment_start: str | None, theme: str):
     dff = df_all[df_all[COL_FY] == fy].copy().sort_values(COL_PP).reset_index(drop=True)
 
     # Override billable hours / working hours with user-entered values
@@ -547,6 +583,8 @@ def update(fy: int, goal: float, input_data: list, theme: str):
             pick_work(int(pp), float(default_wh))
             for pp, default_wh in zip(dff[COL_PP].astype(int).tolist(), dff[COL_WORK].astype(float).tolist())
         ]
+
+    dff = apply_employment_start_adjustment(dff, employment_start)
 
     calc = compute_cbu(dff)
 
