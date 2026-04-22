@@ -103,7 +103,7 @@ def generate_fy_pay_periods(fy: int) -> pd.DataFrame:
 
 def generate_sample_data() -> pd.DataFrame:
     """Generate pay period templates for multiple fiscal years."""
-    fiscal_years = [2025, 2026]  # FY25 (Apr 2024–Mar 2025) and FY26 (Apr 2025–Mar 2026)
+    fiscal_years = [2025, 2026, 2027]  # FY25 (Apr 2024–Mar 2025), FY26 (Apr 2025–Mar 2026), FY27 (Apr 2026–Mar 2027)
     all_data = [generate_fy_pay_periods(fy) for fy in fiscal_years]
     return pd.concat(all_data, ignore_index=True)
 
